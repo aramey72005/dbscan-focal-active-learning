@@ -17,7 +17,7 @@ This project **replaces K-Means with DBSCAN** inside the same Focal Active Learn
 - **Hypothesis:** Foci selected by DBSCAN will improve diabetic-class recall and F1, because density-based clusters can handle noise and non-spherical structure.
 - **Null hypothesis:** Replacing K-Means with DBSCAN gives no meaningful improvement in downstream classification.
 
-See [docs/project_overview.md](docs/project_overview.md) for the full experiment design and a summary of the paper.
+See [docs/project_overview.md](docs/project_overview.md) for the full experiment design and a summary of the paper. See [docs/replication_spec.md](docs/replication_spec.md) for exactly what we build, including every setting from the paper and our decision on each gap.
 
 ## Repository layout
 
@@ -29,7 +29,8 @@ See [docs/project_overview.md](docs/project_overview.md) for the full experiment
 ├── docs/
 │   ├── paper/          # Original paper (Zhang et al., 2025, PLOS One)
 │   ├── proposal/       # Our project proposal deck
-│   └── project_overview.md
+│   ├── project_overview.md
+│   └── replication_spec.md
 ├── notebooks/          # Exploratory analysis and experiments
 ├── src/                # Reusable pipeline code (preprocessing, focal selection, training, evaluation)
 ├── results/
