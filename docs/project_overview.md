@@ -44,6 +44,8 @@ The only thing that differs between the two arms is how foci are selected: K-Mea
 
 ### Open decisions to settle before coding
 
+Proposed answers to all of these are in the [replication spec](replication_spec.md).
+
 - [ ] How to treat DBSCAN noise points: exclude, assign to the nearest cluster, or treat each as its own focus?
 - [ ] How to tune `eps` / `min_samples`: k-distance plot, grid search, or both?
 - [ ] Which distance metric DBSCAN uses: cosine to match the paper, or Euclidean?
