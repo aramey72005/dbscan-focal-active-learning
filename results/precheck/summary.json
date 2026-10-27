@@ -1,0 +1,38 @@
+{
+  "dev_rows": 10000,
+  "distinct_points": 9955,
+  "duplicate_points": 45,
+  "category_strata": 47,
+  "distinct_values_per_feature": {
+    "gender": 2,
+    "age": 102,
+    "hypertension": 2,
+    "heart_disease": 2,
+    "smoking_history": 6,
+    "bmi": 2609,
+    "HbA1c_level": 18,
+    "blood_glucose_level": 18
+  },
+  "zero_k_distance_share_k8": 0.0,
+  "zero_k_distance_share_k16": 0.0,
+  "zero_k_distance_share_k32": 0.0,
+  "knee_eps": {
+    "8": 0.3328,
+    "16": 0.4014,
+    "32": 0.4667
+  },
+  "settings_passing_spec_rule": 0,
+  "spec_rule_pick": null,
+  "kmeans_200_reference": {
+    "n_clusters": 200,
+    "noise_rate": 0.0,
+    "largest_cluster_share": 0.0154,
+    "median_cluster_size": 46.5,
+    "clusters_ge_16": 200,
+    "silhouette": 0.2142,
+    "stratum_purity": 0.709,
+    "ari_vs_strata": 0.0484,
+    "diabetic_rate_noise": NaN,
+    "diabetic_rate_clustered": 0.085
+  }
+}
