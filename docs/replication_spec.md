@@ -24,9 +24,9 @@ If you change a decision, edit this file in a pull request so the change is visi
 |---|---|---|
 | Dataset | Diabetes-Prediction-Analysis, 100,000 rows, 8 features, 8.5% diabetic (p. 4) | Same. **Note:** the proposal deck says 10,000; that needs correcting. |
 | Missing values | None found (p. 4) | Verify on load; fail loudly if any are found. |
-| Duplicate rows | Not mentioned | **Proposed:** keep them, to match the paper. Log the count. |
+| Duplicate rows | Not mentioned | **Proposed:** keep them, to match the paper. Log the count, and also log how many test rows have an exact copy in the training set. Duplicates that land on both sides of the split leak information and may raise every run's scores slightly. Mention this in the report. |
 | `gender = "Other"` | Not mentioned (the paper encodes gender as 0/1) | **Proposed:** drop these rows (a very small number). Log the count. |
-| Categorical encoding | 8-dimensional feature space (p. 8), no one-hot encoding | **Proposed:** label-encode `gender` and `smoking_history`, keeping 8 features. |
+| Categorical encoding | 8-dimensional feature space (p. 8), no one-hot encoding | **Proposed:** label-encode `gender` and `smoking_history`, keeping 8 features to match the paper. **Known limitation:** `smoking_history` has 6 unordered categories (`No Info`, `never`, `former`, `current`, `ever`, `not current`). Label encoding treats them as if they had an order, and that order affects cosine similarity and clustering. Optional sensitivity check: rerun R4 and R5 with `smoking_history` one-hot encoded. |
 | Scaling | Z-score on continuous features, for scale-sensitive models (p. 4) | **Proposed:** z-score **all** features, fit on the training set only. Cosine similarity and clustering are scale-sensitive, and tree models are unaffected. |
 
 ### Train / validation / test split
@@ -34,7 +34,7 @@ If you change a decision, edit this file in a pull request so the change is visi
 | Item | Paper says | Our decision |
 |---|---|---|
 | Train/test | 70/30 (p. 23) | 70/30, **stratified**, split seed `42`, the same for every run. |
-| Validation | "tuned using cross-validation" (p. 17), no details | **Proposed:** hold out 20% of the training set (stratified) as a validation set for all tuning. |
+| Validation | "tuned using cross-validation" (p. 17), no details | **Proposed:** hold out a **small** stratified validation set of **2,000 rows** from the training set and use it for all tuning. Its labels are a fixed cost shared by both methods. Report it next to the active-learning label count so the total number of labels used is clear. (A 20% holdout would be 14,000 labeled rows, more than the whole active-learning budget, which would undercut the "fewer labels" claim.) |
 | Test set | — | **Untouched until final evaluation.** No tuning on it, ever. |
 
 ### Development subset
@@ -64,7 +64,7 @@ U = training pool (labels hidden)        L = labeled sub-pool (starts empty)
 |---|---|---|
 | Number of foci | k = 200 (p. 11, 17) | 200, for **both** methods (see §4 for DBSCAN). |
 | Batch size | 400 per round, i.e. 2 × foci (p. 15, 17) | 400. |
-| Stopping rule | Sub-pool reaches 20% of the unlabeled data (p. 15, 17) | Stop when \|L\| ≥ 20% of the original \|U\|. |
+| Stopping rule | Sub-pool reaches 20% of the unlabeled data (p. 15, 17) | Stop when \|L\| ≥ 20% of the original \|U\|, where U is the training set minus the validation set. With the full dataset that is about 68,000 × 0.2 ≈ 13,600 labels: 200 foci plus about 34 rounds of 400. |
 | Are the foci labeled? | "stabilized foci (labeled samples)" (p. 13) | Yes, the foci form the initial L. |
 | What the final model trains on | Ambiguous ("fed back into the overall training dataset", p. 15) | **Proposed:** the final classifier trains on **L only**. Using fewer labels is the point of active learning. |
 
@@ -91,7 +91,7 @@ U = training pool (labels hidden)        L = labeled sub-pool (starts empty)
 | How SHAP is computed | Each iteration, on the current sub-pool (p. 13) | `shap.TreeExplainer` on the selection model, run over L. |
 | Importance | Mean SHAP contribution | `importance_j = mean(|SHAP_j|)` over L. |
 | Normalization | **Not given** | **Proposed:** rescale so the importances average 1.0. If every feature were equally important, all weights would be 1 and nothing would change. |
-| What gets weighted | `weighted_feature = feature × importance` (Eq. 10) | Applied to the feature space used for **similarity scoring**. Tree classifiers are unaffected by per-feature scaling, so the classifier uses unweighted features. |
+| What gets weighted | `weighted_feature = feature × importance` (Eq. 10) | Applied to the feature space used for **similarity scoring**. Tree classifiers are unaffected by per-feature scaling, so the classifier uses unweighted features. **Note:** the foci are chosen once, in the *unweighted* space, before any SHAP weights exist. From the first round onward, similarity to those foci is measured in the *weighted* space. This is intentional and the same for both methods. |
 
 ---
 
@@ -112,11 +112,13 @@ U = training pool (labels hidden)        L = labeled sub-pool (starts empty)
 | Item | Decision |
 |---|---|
 | Input space | Same L2-normalized, standardized features as K-Means. Use the Euclidean metric, which has fast indexing and gives the same neighborhoods as cosine. |
-| `min_samples` | **Proposed:** start at 2 × number of features = 16, then tune on validation. |
-| `eps` | **Proposed:** choose a starting value from the bend in a k-distance plot, then search a small grid around it on validation. |
+| Pre-check (do first) | Most features are discrete: `gender`, `hypertension`, `heart_disease` and `smoking_history` are categorical or binary, and `age` and `HbA1c_level` take a limited set of values. DBSCAN may therefore just split the data along these category combinations, and duplicate points can make the k-distance plot flat at 0. **Before building the rest of §4**, run DBSCAN on the dev subset. Record the number of clusters, the noise rate, cluster sizes, and how much the clusters match category combinations. Bring the results to the team before going further. |
+| `min_samples` | **Proposed:** start at 2 × number of features = 16. |
+| `eps` | **Proposed:** choose a starting value from the bend in a k-distance plot (k = `min_samples`). |
+| How `eps` / `min_samples` are tuned | **Proposed:** using **only unsupervised criteria on the training pool**, never downstream validation F1. Search a small grid around the starting values. Pick the setting with the highest silhouette score (computed on a sample of 10,000 rows, excluding noise), among settings with a noise rate ≤ 10% and at least 20 clusters. **Freeze the setting before any active-learning run.** This matches K-Means, whose settings come from the paper and are never tuned on downstream results. Neither method gets to see validation labels when choosing its foci. |
 | Focus of each cluster | **Medoid:** the real point with the smallest total distance to the rest of its cluster. For large clusters, compute it on a random sample of at most 2,000 points. |
 | Noise points | **Proposed:** never chosen as foci, but they stay in U and can still be picked by the scoring step. Report the noise rate. |
-| Keeping the label budget equal | DBSCAN picks its own number of clusters C, while K-Means uses 200. **Proposed:** always use exactly 200 foci. If C ≥ 200, take the medoids of the 200 largest clusters. If C < 200, give each cluster foci in proportion to its size (at least 1 each), starting with its medoid and then adding the cluster's points farthest from the foci already chosen. **Team should discuss this one.** |
+| Keeping the label budget equal | DBSCAN picks its own number of clusters C, while K-Means uses 200. **Proposed:** always use exactly 200 foci. If C ≥ 200, take the medoids of the 200 largest clusters. If C < 200, give each cluster foci in proportion to its size (at least 1 each), starting with its medoid and then adding the cluster's points farthest from the foci already chosen. **Team should discuss this one.** Adding farthest points is a separate selection method of its own, so it can hide what DBSCAN itself contributes. R7 (§6) checks this by letting DBSCAN use its natural cluster count. |
 | Memory backup plan | If DBSCAN on the full training set is too slow or memory-heavy, fit it on a stratified sample (for example 20,000 rows). If we do this, **do the same for K-Means** so the two methods stay comparable. |
 
 ---
@@ -141,6 +143,7 @@ U = training pool (labels hidden)        L = labeled sub-pool (starts empty)
 | **R4: K-Means, `realistic` variant** | Baseline for the main comparison. |
 | **R5: DBSCAN, `realistic` variant** | **Our proposed method.** |
 | R6: DBSCAN, `paper` variant | Optional, for completeness. |
+| R7: DBSCAN, natural C, `realistic` variant | Optional. One medoid per DBSCAN cluster, with no top-up to 200, so the initial label count differs from the other runs (report it). Shows how much of R5's result comes from DBSCAN itself and how much from the farthest-point top-up. |
 
 - **Seeds:** `0, 1, 2, 3, 4` for clustering and active learning. The test split stays fixed (seed `42`).
 - **Report:** the mean ± standard deviation across seeds.
