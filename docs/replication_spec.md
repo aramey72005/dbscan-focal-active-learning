@@ -169,6 +169,6 @@ The paper's best result (Table 3, LightGBM): **accuracy 0.9741, precision 0.9806
 
 | Teammate | Reviewed | Comments |
 |---|---|---|
-| Amber Ramey | ☐ | |
+| Amber Ramey | ☑ 2026-10-27 | Approved, including the review edits in commit 260f301. |
 | Nairuti Vora | ☐ | |
 | Jonus Ronquillo | ☐ | |
