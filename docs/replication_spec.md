@@ -22,19 +22,23 @@ If you change a decision, edit this file in a pull request so the change is visi
 
 | Item | Paper says | Our decision |
 |---|---|---|
-| Dataset | Diabetes-Prediction-Analysis, 100,000 rows, 8 features, 8.5% diabetic (p. 4) | Same. **Note:** the proposal deck says 10,000; that needs correcting. |
+| Dataset | Diabetes-Prediction-Analysis, 100,000 rows, 8 features, 8.5% diabetic (p. 4) | Same file (`Diabetes_prediction.csv`). It also has `EmployeeName` and `Patient_id` columns; drop both. **Note:** the proposal deck says 10,000; that needs correcting. |
 | Missing values | None found (p. 4) | Verify on load; fail loudly if any are found. |
-| Duplicate rows | Not mentioned | **Proposed:** keep them, to match the paper. Log the count, and also log how many test rows have an exact copy in the training set. Duplicates that land on both sides of the split leak information and may raise every run's scores slightly. Mention this in the report. |
-| `gender = "Other"` | Not mentioned (the paper encodes gender as 0/1) | **Proposed:** drop these rows (a very small number). Log the count. |
-| Categorical encoding | 8-dimensional feature space (p. 8), no one-hot encoding | **Proposed:** label-encode `gender` and `smoking_history`, keeping 8 features to match the paper. **Known limitation:** `smoking_history` has 6 unordered categories (`No Info`, `never`, `former`, `current`, `ever`, `not current`). Label encoding treats them as if they had an order, and that order affects cosine similarity and clustering. Optional sensitivity check: rerun R4 and R5 with `smoking_history` one-hot encoded. |
-| Scaling | Z-score on continuous features, for scale-sensitive models (p. 4) | **Proposed:** z-score **all** features, fit on the training set only. Cosine similarity and clustering are scale-sensitive, and tree models are unaffected. |
+| `gender = "Other"` | Not mentioned (the paper encodes gender as 0/1, p. 4) | Drop these rows (18). |
+| `smoking_history = "No Info"` | **Not stated, but inferred.** The paper's smoking codes have 5 levels, 0–4 (p. 4), so there is no code left for "No Info". Its Table 2 means and standard deviations (p. 5) are reproduced **exactly** only after these rows are dropped (age 46.54 ± 19.54, BMI 28.42 ± 6.52, HbA1c 5.56 ± 1.10, glucose 139.63 ± 42.17). | Drop these rows (35,810). |
+| Duplicate rows | **Removed:** "eliminate all duplicate samples" (p. 9) | Remove them (925 after the steps above). This also removes duplicate leakage between train and test. |
+| Outliers | **Removed** with 1.5 × IQR on the continuous features (p. 9–10) | Remove them, with quartiles computed on the cleaned data before splitting, as the paper orders it. This drops 5,357 rows, **57% of them diabetic**: every row with HbA1c > 8.3 or glucose > 247.5 is removed, and all of those are diabetic. That makes the task harder, so final diabetic rate is 6.9%. |
+| Categorical encoding | Label encoding (p. 10). Gender: female 0, male 1. Smoking: 0 = never … 4, with `current` = 4 in Table 1 (p. 4–5) | Gender as stated. Smoking: `never` 0, `former` 1, `ever` 2, `not current` 3, `current` 4. This order matches Table 1 and reproduces the paper's reported smoking mean of 1.157 (p. 6). |
+| Scaling | Z-score (Eq. 1); the paper standardizes before splitting (p. 10) | Z-score **all** features, **fit on the training pool only** (a small deliberate deviation, so no test statistics leak in; its effect on the numbers is negligible). Cosine similarity and clustering are scale-sensitive, and tree models are unaffected. |
+
+After cleaning: **57,890 rows, 6.86% diabetic.**
 
 ### Train / validation / test split
 
 | Item | Paper says | Our decision |
 |---|---|---|
-| Train/test | 70/30 (p. 23) | 70/30, **stratified**, split seed `42`, the same for every run. |
-| Validation | "tuned using cross-validation" (p. 17), no details | **Proposed:** hold out a **small** stratified validation set of **2,000 rows** from the training set and use it for all tuning. Its labels are a fixed cost shared by both methods. Report it next to the active-learning label count so the total number of labels used is clear. (A 20% holdout would be 14,000 labeled rows, more than the whole active-learning budget, which would undercut the "fewer labels" claim.) |
+| Train/validation/test | **70 / 15 / 15** (p. 8, 10; the "70/30" on p. 23 is train vs. validation + test) | 70/15/15, **stratified**, split seed `42`, the same for every run: pool 40,523, validation 8,683, test 8,684. |
+| Validation | Used to check tuned models; tuning itself is grid search with 5-fold cross-validation (p. 9, 16) | Follow the paper (see §5). The validation set is only used to report a check score, so its size does not affect the label budget. |
 | Test set | — | **Untouched until final evaluation.** No tuning on it, ever. |
 
 ### Development subset
@@ -62,9 +66,9 @@ U = training pool (labels hidden)        L = labeled sub-pool (starts empty)
 
 | Item | Paper says | Our decision |
 |---|---|---|
-| Number of foci | k = 200 (p. 11, 17) | 200, for **both** methods (see §4 for DBSCAN). |
+| Number of foci | k = 200 (p. 11, 17), "in the vicinity of √(n/2)" (p. 11) | 200, for **both** methods (see §4 for DBSCAN). √(40,523/2) ≈ 142, so 200 is still "in the vicinity". We keep the paper's stated value. |
 | Batch size | 400 per round, i.e. 2 × foci (p. 15, 17) | 400. |
-| Stopping rule | Sub-pool reaches 20% of the unlabeled data (p. 15, 17) | Stop when \|L\| ≥ 20% of the original \|U\|, where U is the training set minus the validation set. With the full dataset that is about 68,000 × 0.2 ≈ 13,600 labels: 200 foci plus about 34 rounds of 400. |
+| Stopping rule | Sub-pool reaches 20% of the unlabeled data (p. 15, 17) | Stop when \|L\| = 20% of the original \|U\| (the 70% pool): 40,523 × 0.2 = 8,104 labels, i.e. 200 foci plus 20 rounds (the last batch is trimmed so every method uses exactly the same number of labels). |
 | Are the foci labeled? | "stabilized foci (labeled samples)" (p. 13) | Yes, the foci form the initial L. |
 | What the final model trains on | Ambiguous ("fed back into the overall training dataset", p. 15) | **Proposed:** the final classifier trains on **L only**. Using fewer labels is the point of active learning. |
 
@@ -128,7 +132,7 @@ U = training pool (labels hidden)        L = labeled sub-pool (starts empty)
 | Item | Paper says | Our decision |
 |---|---|---|
 | Classifiers | 10 models, best was LightGBM (Table 3) | **Proposed:** primary = **LightGBM**. Optionally add XGBoost and Random Forest. Skip AutoSklearn, which doesn't run on Windows. |
-| Hyperparameter tuning | AutoSklearn (p. 17) | **Proposed:** the same small grid search on validation for both methods: `n_estimators ∈ {200, 500}`, `max_depth ∈ {-1, 6}`, `learning_rate ∈ {0.05, 0.1}`. |
+| Hyperparameter tuning | Grid search with 5-fold cross-validation, judged on precision/recall/F1 (p. 9, 16); AutoSklearn for model selection (p. 17). The LightGBM grid is not given. | Grid search with **5-fold stratified cross-validation on F1** over the final training set, the same grid for every run: `n_estimators ∈ {200, 500}`, `max_depth ∈ {-1, 6}`, `learning_rate ∈ {0.05, 0.1}`. Report validation F1 as a check. |
 | Class weighting | Not mentioned | None. The sampling step is what handles the imbalance. |
 
 ---
@@ -161,7 +165,13 @@ Accuracy alone isn't meaningful here: always predicting "not diabetic" already s
 
 The paper's best result (Table 3, LightGBM): **accuracy 0.9741, precision 0.9806, recall 0.9470, F1 0.9632.**
 
-**Proposed success criterion:** R3 lands within about 3 points of these on recall and F1. If it doesn't, we document the likely reasons (the missing α/β/γ, AutoSklearn, and so on) and still go ahead with the comparison. The comparison only needs both methods built on the same baseline, not an exact match with the paper.
+**These numbers cannot be reproduced on this dataset, by any LightGBM pipeline.**
+- Accuracy 0.9741, precision 0.9806 and recall 0.9470 only fit together if the test set was about **36% diabetic**, with a **false-positive rate of about 1.1%**. That isn't the paper's own split, which keeps the natural 8.5% (or 6.9% after cleaning).
+- A model's best recall at a given false-positive rate doesn't depend on the test set's class balance or the decision threshold. So we checked it directly: LightGBM trained on **every** training label reaches at most **0.74** recall at a 1.1% false-positive rate on the raw data, and **0.56** after the paper's own cleaning. Active learning trains on a subset of those same labels, so it shouldn't do better.
+- A likely reason: about 18–27% of diabetics have HbA1c ≤ 6.2 and glucose ≤ 159, values that non-diabetics also take. No model can separate those rows from non-diabetics using these 8 features.
+- The paper does mention evaluating on resampled sets ("1:4 ratio between non-diabetic and diabetic cases", p. 20, for its Table 5). That could explain the high precision and accuracy, but not the recall, because recall doesn't depend on class balance.
+
+**Success criterion, revised:** the baseline must match the paper's **method** step by step (§1–§3, §5), with every unstated gap filled as documented here. It does **not** need to match Table 3's numbers. The project's question, K-Means vs. DBSCAN, only needs both arms built on the same faithful baseline. The report should present the infeasibility evidence above.
 
 ---
 
